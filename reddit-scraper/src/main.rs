@@ -3,9 +3,10 @@ extern crate xml;
 extern crate html5ever;
 
 use html5ever::tendril::TendrilSink;
-use std::fmt::Debug;
+use std::fmt::{Debug};
 
 const SUBREDDIT: &str = "cableporn";
+const PREFIX: &str = "img";
 
 #[derive(Debug, PartialEq)]
 enum State {
@@ -138,10 +139,13 @@ fn walk_for_img(node: &html5ever::rcdom::Handle) -> Option<String> {
             ref attrs,
             ..
         } => {
-            if name.local.to_string() == "img" {
+            if name.local.to_string() == "a" {
                 for attr in attrs.borrow().iter() {
-                    if attr.name.local.to_string() == "src" {
-                        return Some(attr.value.to_string())
+                    if attr.name.local.to_string() == "href" {
+                        let url = attr.value.to_string();
+                        if url.starts_with("https://i.redd.it/") {
+                            return Some(url)
+                        }
                     }
                 }
             }
@@ -158,6 +162,28 @@ fn walk_for_img(node: &html5ever::rcdom::Handle) -> Option<String> {
     None
 }
 
+fn save_file(client: &reqwest::Client, url: &str) -> Result<u64, String> {
+    let name = match url.split('/').last() {
+        Some(n) => n,
+        None => return Err("No name".to_string())
+    };
+    let mut file = match std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(format!("./{}/{}", PREFIX, name)) {
+        Ok(f) => f,
+        Err(e) => return Err(e.to_string())
+    };
+    let mut resp = match client.get(url).send() {
+        Ok(r) => r,
+        Err(e) => return Err(e.to_string())
+    };
+    match std::io::copy(&mut resp, &mut file) {
+        Ok(c) => Ok(c),
+        Err(e) => Err(e.to_string())
+    }
+}
+
 fn main() {
     let mut headers = reqwest::header::HeaderMap::new();
     headers.insert(reqwest::header::USER_AGENT, reqwest::header::HeaderValue::from_static("Mozilla/5.0 (X11; Linux x86_64; rv:69.0) Gecko/20100101 Firefox/69.0"));
@@ -167,6 +193,11 @@ fn main() {
     let feed2 = get_entries(&client, SUBREDDIT, Some(&feed1.entries.last().unwrap().id.clone().unwrap()));
 
     for e in feed1.entries {
-        println!("{:#?}", walk_for_img(&e.content.unwrap().document));
+        match walk_for_img(&e.content.unwrap().document) {
+            None => {},
+            Some(i) => {
+                println!("{:#?}", save_file(&client, &i));
+            }
+        }
     }
 }
