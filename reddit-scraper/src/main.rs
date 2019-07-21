@@ -120,7 +120,7 @@ fn get_entries(client: &reqwest::Client, subreddit: &str, after: Option<&str>) -
                     entry.as_mut().unwrap().id = Some(string);
                 }
             }
-            Ok(_e) => {}
+            Ok(_) => {}
             Err(e) => {
                 panic!(e);
             }
@@ -128,6 +128,34 @@ fn get_entries(client: &reqwest::Client, subreddit: &str, after: Option<&str>) -
     }
 
     feed.unwrap()
+}
+
+
+fn walk_for_img(node: &html5ever::rcdom::Handle) -> Option<String> {
+    match &node.data {
+        html5ever::rcdom::NodeData::Element {
+            ref name,
+            ref attrs,
+            ..
+        } => {
+            if name.local.to_string() == "img" {
+                for attr in attrs.borrow().iter() {
+                    if attr.name.local.to_string() == "src" {
+                        return Some(attr.value.to_string())
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+
+    for child in node.children.borrow().iter() {
+        if let Some(s) = walk_for_img(child) {
+            return Some(s);
+        }
+    }
+
+    None
 }
 
 fn main() {
@@ -138,6 +166,7 @@ fn main() {
     let feed1 = get_entries(&client, SUBREDDIT, None);
     let feed2 = get_entries(&client, SUBREDDIT, Some(&feed1.entries.last().unwrap().id.clone().unwrap()));
 
-    println!("{:#?}", feed1);
-    println!("{:#?}", feed2);
+    for e in feed1.entries {
+        println!("{:#?}", walk_for_img(&e.content.unwrap().document));
+    }
 }
