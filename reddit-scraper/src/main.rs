@@ -1,5 +1,9 @@
 extern crate reqwest;
 extern crate xml;
+extern crate html5ever;
+
+use html5ever::tendril::TendrilSink;
+use std::fmt::Debug;
 
 const SUBREDDIT: &str = "cableporn";
 
@@ -26,11 +30,24 @@ impl Feed {
     }
 }
 
-#[derive(Debug)]
 struct FeedEntry {
     title: Option<String>,
-    content: Option<String>,
+    content: Option<html5ever::rcdom::RcDom>,
     id: Option<String>
+}
+
+impl Debug for FeedEntry {
+     fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
+         let document = match &self.content {
+                Some(c) => Some(&c.document),
+                None => None
+            };
+        fmt.debug_struct("FeedEntry")
+            .field("title", &self.title)
+            .field("id", &self.id)
+            .field("content.document", &document)
+            .finish()
+    }
 }
 
 impl FeedEntry {
@@ -45,12 +62,8 @@ impl FeedEntry {
 
 fn get_entries(client: &reqwest::Client, subreddit: &str, after: Option<&str>) -> Feed {
     let url = match after {
-        None => {
-            format!("https://www.reddit.com/r/{}/.rss", subreddit)
-        }
-        Some(s) => {
-            format!("https://www.reddit.com/r/{}/.rss?after={}", subreddit, s)
-        }
+        None => format!("https://www.reddit.com/r/{}/.rss", subreddit),
+        Some(s) => format!("https://www.reddit.com/r/{}/.rss?after={}", subreddit, s)
     };
 
     let feed = client.get(&url).send().unwrap();
@@ -96,7 +109,13 @@ fn get_entries(client: &reqwest::Client, subreddit: &str, after: Option<&str>) -
                 if state == State::Title {
                     entry.as_mut().unwrap().title = Some(string);
                 } else if state == State::Content {
-                    entry.as_mut().unwrap().content = Some(string);
+                    let doc = html5ever::parse_document(
+                        html5ever::rcdom::RcDom::default(),
+                        Default::default())
+                        .from_utf8()
+                        .read_from(&mut string.as_bytes())
+                        .unwrap();
+                    entry.as_mut().unwrap().content = Some(doc);
                 } else if state == State::ID {
                     entry.as_mut().unwrap().id = Some(string);
                 }
